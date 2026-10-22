@@ -1423,7 +1423,7 @@ async def main():
     asyncio.create_task(cleanup_job())
     for uid in cfg.offer_always_allowed_ids:
         db.add_access(uid); db.unblock_offer_user(uid)
-    log.info("OfferBot starting; owner_id=%s database=%s", cfg.owner_id, "PostgreSQL")
+    log.info("OfferBot starting; owner_id=%s database=%s", cfg.owner_id, "SQLite")
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 

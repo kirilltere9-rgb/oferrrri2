@@ -1,23 +1,99 @@
-"""PostgreSQL persistence for OfferBot. Requires DATABASE_URL from Railway."""
+"""SQLite persistence for OfferBot. Uses DATABASE_PATH; no PostgreSQL dependency."""
 from contextlib import contextmanager
 from typing import Any, Optional, Dict
+from pathlib import Path
 import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import re
+import sqlite3
+
+
+def _sqlite_sql(sql: str) -> str:
+    """Translate the small set of PostgreSQL syntax used by the original DB layer."""
+    sql = re.sub(r"\bBIGSERIAL\s+PRIMARY\s+KEY\b", "INTEGER PRIMARY KEY AUTOINCREMENT", sql, flags=re.I)
+    sql = re.sub(r"\bTIMESTAMPTZ\b", "TEXT", sql, flags=re.I)
+    sql = re.sub(r"\bBOOLEAN\b", "INTEGER", sql, flags=re.I)
+    sql = re.sub(r"\bBIGINT\b", "INTEGER", sql, flags=re.I)
+    sql = re.sub(r"\bDOUBLE\s+PRECISION\b", "REAL", sql, flags=re.I)
+    sql = re.sub(r"\bNOW\s*\(\s*\)", "CURRENT_TIMESTAMP", sql, flags=re.I)
+    sql = re.sub(r"([A-Za-z_][A-Za-z0-9_]*)::date", r"date(\1)", sql, flags=re.I)
+    sql = re.sub(r"ADD COLUMN IF NOT EXISTS", "ADD COLUMN", sql, flags=re.I)
+    sql = sql.replace("%s", "?")
+    return sql
+
+class _SQLiteCursor:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def execute(self, sql, params=()):
+        translated = _sqlite_sql(sql)
+        try:
+            self._cursor.execute(translated, params)
+        except sqlite3.OperationalError as exc:
+            # SQLite has no "ADD COLUMN IF NOT EXISTS"; ignore only duplicate-column migrations.
+            if "duplicate column name" in str(exc).lower() and "ALTER TABLE" in translated.upper():
+                return self
+            raise
+        return self
+
+    def executemany(self, sql, params):
+        self._cursor.executemany(_sqlite_sql(sql), params)
+        return self
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    @property
+    def lastrowid(self):
+        return self._cursor.lastrowid
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self._cursor.close()
+
+
+class _SQLiteConnection:
+    def __init__(self, connection):
+        self._connection = connection
+
+    def cursor(self):
+        return _SQLiteCursor(self._connection.cursor())
+
+    def commit(self):
+        self._connection.commit()
+
+    def rollback(self):
+        self._connection.rollback()
+
+    def close(self):
+        self._connection.close()
 
 
 class Database:
-    def __init__(self, database_url: str):
-        if not database_url:
-            raise RuntimeError("DATABASE_URL is required. Add a PostgreSQL service in Railway and reference its DATABASE_URL.")
-        self.database_url = database_url
+    def __init__(self, database_path: str):
+        if not database_path:
+            raise RuntimeError("DATABASE_PATH is required")
+        self.database_path = database_path
+        self.database_url = database_path  # Compatibility with older code.
+        if database_path != ":memory:" and not database_path.startswith("file:"):
+            Path(database_path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
         self.init_schema()
 
     @contextmanager
     def connect(self):
-        con = psycopg2.connect(self.database_url, cursor_factory=RealDictCursor, connect_timeout=15)
+        con = sqlite3.connect(self.database_path, timeout=30, uri=self.database_path.startswith("file:"))
+        con.row_factory = lambda cursor, row: {column[0]: row[index] for index, column in enumerate(cursor.description)}
+        wrapped = _SQLiteConnection(con)
         try:
-            yield con
+            yield wrapped
             con.commit()
         except Exception:
             con.rollback()

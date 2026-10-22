@@ -13,7 +13,7 @@ def _bool(value: str | None, default: bool = False) -> bool:
 class Config:
     bot_token: str
     owner_id: int
-    database_url: str
+    database_path: str
     offer_help_url: str
     business_debug: bool
     offer_access_mode: str
@@ -30,6 +30,11 @@ class Config:
     cryptopay_api_token: str = ""
     bot_username: str = ""
 
+    @property
+    def database_url(self) -> str:
+        # Compatibility with bot.py versions that still call Database(cfg.database_url).
+        return self.database_path
+
 
 def load_config() -> Config:
     try:
@@ -40,13 +45,14 @@ def load_config() -> Config:
 
     token = os.getenv("BOT_TOKEN", "").strip()
     owner = os.getenv("OWNER_ID", "").strip()
-    database_url = os.getenv("DATABASE_URL", "").strip()
+    database_path = os.getenv("DATABASE_PATH", "./data/offers.sqlite3").strip()
+
     if not token:
         raise RuntimeError("BOT_TOKEN is not set")
     if not owner.isdigit():
         raise RuntimeError("OWNER_ID must be an integer")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL is not set; add a PostgreSQL reference in Railway Variables")
+    if not database_path:
+        database_path = "./data/offers.sqlite3"
 
     ids = []
     for item in os.getenv("OFFER_ALWAYS_ALLOWED_IDS", "").split(","):
@@ -61,7 +67,7 @@ def load_config() -> Config:
     return Config(
         bot_token=token,
         owner_id=int(owner),
-        database_url=database_url,
+        database_path=database_path,
         offer_help_url=os.getenv("OFFER_HELP_URL", "").strip(),
         business_debug=_bool(os.getenv("BUSINESS_DEBUG", "1"), True),
         offer_access_mode=mode,
