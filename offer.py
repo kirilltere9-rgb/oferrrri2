@@ -71,23 +71,22 @@ def parse_offer(text: str):
 
 
 def display_amount(amount: float, currency: str, with_emoji: bool = False) -> str:
+    # В премиум-формате число должно непосредственно примыкать к эмодзи:
+    # например, 150<tg-emoji ...>⭐</tg-emoji>, без пробела.
     value = f"{amount:g}"
     if with_emoji:
-        # Для отображения в тексте с эмодзи
         if currency == "gram":
-            return f"{value} <tg-emoji emoji-id=\"5255894863303450180\">💎</tg-emoji>"
+            return f'{value}<tg-emoji emoji-id="{GRAM_EMOJI_ID}">💎</tg-emoji>'
         elif currency == "rub":
             return f"{value}₽"
-        else:  # stars
-            return f"{value} <tg-emoji emoji-id=\"5321485469249198987\">⭐</tg-emoji>"
-    else:
-        # Обход PEER_FLOOD: латинская 'а' вместо кириллической
-        if currency == "gram":
-            return f"{value} Grаm"
-        elif currency == "rub":
-            return f"{value}₽"
-        else:
-            return f"{value} Stаrs"
+        return f'{value}<tg-emoji emoji-id="{STARS_EMOJI_ID}">⭐</tg-emoji>'
+
+    # Формат для .оффер: обычные слова Stars / Gram.
+    if currency == "gram":
+        return f"{value} Gram"
+    elif currency == "rub":
+        return f"{value}₽"
+    return f"{value} Stars"
 
 
 def gift_title(name: str, number: int) -> str:
